@@ -1,0 +1,125 @@
+# 注意：请先确保 curl_cffi 库是最新版本
+# pip install --upgrade curl_cffi
+# 如果最新版仍然不支持或移除 impersonate 后能工作，则使用此代码
+
+from curl_cffi import requests
+from bs4 import BeautifulSoup
+import json
+import os
+from urllib.parse import urljoin
+
+
+def get_nju_im_news_with_curl_cffi_and_save():
+    """
+    使用 curl_cffi 库爬取南京大学信息管理学院网站内容，
+    提取活动信息，并保存到 D 盘的 JSON 文件中。
+    """
+    url = "https://im.nju.edu.cn/"
+
+    # 设置一个常见的浏览器 User-Agent
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+    }
+
+    try:
+        print("正在使用 curl_cffi 连接 (无 impersonate)...")
+        # 发送请求，不使用 impersonate 参数
+        response = requests.get(url, headers=headers, timeout=10)
+
+        # 检查 HTTP 状态码
+        if response.status_code == 200:
+            print(f"请求成功，状态码: {response.status_code}")
+
+            # 获取页面内容
+            content = response.content.decode('utf-8')  # 使用 .content 然后手动解码
+
+            # 使用 BeautifulSoup 解析 HTML
+            soup = BeautifulSoup(content, 'html.parser')
+
+            print("--- 网页标题 ---")
+            print(soup.title.string if soup.title else "无标题")
+
+            # --- 尝试查找知识库中提到的活动信息 ---
+            print("\n--- 查找可能的活动信息 ---")
+            # 搜索包含 "报告", "会议", "讲座", "学术", "活动", "评议人", "主持人", "时间", "地点" 等关键词的元素
+            possible_elements = soup.find_all(string=lambda text: text and any(keyword in text for keyword in
+                                                                               ["报告", "会议", "讲座", "学术", "活动",
+                                                                                "评议人", "主持人", "时间", "地点"]))
+
+            activities = []  # 用于存储找到的活动信息字典
+            if possible_elements:
+                found_content = set()  # 使用集合去重
+                for element in possible_elements:
+                    # 获取包含关键词的标签及其父级或同级标签的内容
+                    parent = element.parent
+                    if parent:
+                        activity_info = {
+                            "text": "",  # 存储提取到的文本信息
+                            "link": ""  # 存储相关链接（如果有）
+                        }
+                        # 尝试获取更完整的信息，例如 <a> 标签的文本和链接
+                        if parent.name == 'a':
+                            link_text = parent.get_text(strip=True)
+                            link_url = parent.get('href')
+                            full_url = urljoin(url, link_url)
+                            activity_info["text"] = link_text
+                            activity_info["link"] = full_url
+                        else:
+                            # 获取父标签的文本内容
+                            activity_info["text"] = parent.get_text(strip=True)
+                            # 如果父标签本身不是链接，尝试在父标签内查找链接
+                            link_tag = parent.find('a')
+                            if link_tag:
+                                link_url = link_tag.get('href')
+                                full_url = urljoin(url, link_url)
+                                activity_info["link"] = full_url
+
+                        text_key = activity_info["text"]
+                        if text_key and text_key not in found_content:
+                            print(activity_info["text"])
+                            if activity_info["link"]:
+                                print(f"链接: {activity_info['link']}")
+                            print("-" * 20)
+                            activities.append(activity_info)  # 将信息字典添加到列表中
+                            found_content.add(text_key)
+
+                if activities:
+                    # 指定保存路径为 D 盘
+                    save_path = r"D:\nju_im_activities.json"
+                    # 确保目录存在 (虽然 D:\ 通常存在，但以防万一)
+                    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+
+                    # 将 activities 列表保存为 JSON 文件
+                    # ensure_ascii=False 确保中文字符能正确保存
+                    # indent=4 使 JSON 文件格式化，便于阅读
+                    with open(save_path, 'w', encoding='utf-8') as f:
+                        json.dump(activities, f, ensure_ascii=False, indent=4)
+
+                    print(f"\n--- 成功将 {len(activities)} 条活动信息保存到 {save_path} ---")
+                else:
+                    print("\n--- 未找到任何活动信息，JSON 文件未创建。 ---")
+
+            else:
+                print("未找到包含关键词的元素。")
+                print("\n--- 未找到任何活动信息，JSON 文件未创建。 ---")
+
+        else:
+            print(f"请求失败，状态码: {response.status_code}")
+
+    except requests.RequestsError as e:
+        # curl_cffi 的异常基类是 requests.RequestsError (注意是 curl_cffi.requests.RequestsError)
+        print(f"curl_cffi 请求发生错误: {e}")
+    except UnicodeDecodeError as e:
+        print(f"内容解码错误: {e}")
+    except FileNotFoundError as e:
+        print(f"文件路径错误或无法创建文件: {e}")
+    except Exception as e:
+        # 捕获其他可能的异常
+        print(f"发生未知错误: {e}")
+        import traceback
+        traceback.print_exc()  # 打印详细的错误堆栈信息
+
+
+# 执行爬虫函数
+if __name__ == "__main__":
+    get_nju_im_news_with_curl_cffi_and_save()
